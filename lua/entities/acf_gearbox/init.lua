@@ -949,17 +949,20 @@ do -- Movement -----------------------------------------
 				local Multiplier = 1
 
 				if DoubleDiff and SteerRate ~= 0 then
-					local Rate = SteerRate * 2
+					-- Regenerative steering. The inner side slows from full speed to a stop at half
+					-- steer and then reverses (1 -> 0 -> -1); the outer side speeds up to hold the MEAN
+					-- track speed (the vehicle's centerline speed) constant through the turn, instead of
+					-- pinning the outer at InputRPM and bleeding centerline speed on every turn. Past
+					-- half steer the outer eases back down so full lock is a clean in-place pivot
+					-- (outer +InputRPM, inner -InputRPM), matching the pre-regen pivot exactly.
+					local Steer = abs(SteerRate)
+					local Inner = 1 - 2 * Steer
+					local Outer = 1 + 2 * min(Steer, 1 - Steer)
 
-					-- Regenerative steering: target speeds symmetric about InputRPM so the MEAN track
-					-- speed (the vehicle's centerline speed) stays constant through a turn. The outer
-					-- side speeds up by the same fraction the inner slows, instead of pinning the outer
-					-- at InputRPM (which bled centerline speed on every turn). Inner ratios and the
-					-- +-0.5 pivot threshold are unchanged.
-					if Link.Side == 0 then
-						Multiplier = 1 + Rate
+					if (SteerRate > 0) == (Link.Side == 0) then
+						Multiplier = Outer
 					else
-						Multiplier = 1 - Rate
+						Multiplier = Inner
 					end
 				end
 
