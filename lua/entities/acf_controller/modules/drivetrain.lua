@@ -192,6 +192,16 @@ do
 		self.GearboxLeft, self.GearboxLeftDir = next(LeftGearboxes)
 		self.GearboxRight, self.GearboxRightDir = next(RightGearboxes)
 
+		-- Detect regenerative-steering gearboxes (Double Differential). These steer through their own
+		-- "Steer Rate" input rather than clutch/brake steering, so the controller drives that input
+		-- directly instead of braking one side.
+		local SteerGearboxes = {}
+		for Gearbox in pairs(self.GearboxEnds) do
+			if Gearbox.DoubleDiff then SteerGearboxes[Gearbox] = true end
+		end
+		self.SteerGearboxes = SteerGearboxes
+		self.CanRegenSteer  = next(SteerGearboxes) ~= nil
+
 		for v in pairs(self.SteerPlates) do
 			local PhysObj = v:GetPhysicsObject()
 			if IsValid(PhysObj) then PhysObj:EnableGravity(false) end
@@ -268,6 +278,27 @@ do
 			SetLeft(SelfTbl, "Brake", BrakeStrength, true) SetRight(SelfTbl, "Brake", BrakeStrength, true) -- Differentials HAVE TO BE DIFFERENT
 			SetLeft(SelfTbl, "Clutch", CLUTCH_BLOCK) SetRight(SelfTbl, "Clutch", CLUTCH_BLOCK)
 			SetLatches(SelfTbl, true)
+			return
+		end
+
+		if SelfTbl.CanRegenSteer and not ShouldSteer then
+			-- Regenerative (Double Differential) steering: turn through the diff's own "Steer Rate"
+			-- input, keeping both sides clutched in and unbraked. A/D (already flip-corrected above)
+			-- pick the direction; a stationary turn pivots in place (full rate), a moving turn holds
+			-- centerline speed (half rate). No clutch/brake steering, so no energy is dumped to turn.
+			SetLatches(SelfTbl, false)
+
+			local SteerDir  = (D and 1 or 0) - (A and 1 or 0)
+			local SteerRate = SteerDir * (IsLateral and 0.5 or 1)
+
+			for Gearbox in pairs(SelfTbl.SteerGearboxes) do
+				TriggerSafe(SelfTbl, Gearbox, "Left Brake",   0)
+				TriggerSafe(SelfTbl, Gearbox, "Right Brake",  0)
+				TriggerSafe(SelfTbl, Gearbox, "Left Clutch",  CLUTCH_FLOW)
+				TriggerSafe(SelfTbl, Gearbox, "Right Clutch", CLUTCH_FLOW)
+				TriggerSafe(SelfTbl, Gearbox, "Steer Rate",   SteerRate)
+				TriggerSafe(SelfTbl, Gearbox, "Gear",         1)
+			end
 			return
 		end
 
