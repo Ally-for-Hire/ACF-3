@@ -945,24 +945,32 @@ do -- Movement -----------------------------------------
 			if GearRatio ~= 0 then
 				local RPM = CalcWheel(self, Link, Wheel, SelfWorld)
 				local Clutch = Link.Side == 0 and LClutch or RClutch
-				local OnRPM = ((InputRPM > 0 and RPM < InputRPM) or (InputRPM < 0 and RPM > InputRPM))
+
+				local Multiplier = 1
+
+				if DoubleDiff and SteerRate ~= 0 then
+					local Rate = SteerRate * 2
+
+					-- Regenerative steering: target speeds symmetric about InputRPM so the MEAN track
+					-- speed (the vehicle's centerline speed) stays constant through a turn. The outer
+					-- side speeds up by the same fraction the inner slows, instead of pinning the outer
+					-- at InputRPM (which bled centerline speed on every turn). Inner ratios and the
+					-- +-0.5 pivot threshold are unchanged.
+					if Link.Side == 0 then
+						Multiplier = 1 + Rate
+					else
+						Multiplier = 1 - Rate
+					end
+				end
+
+				local Target = InputRPM * Multiplier
+				-- Gate on Target (the steered per-side speed), not raw InputRPM, so the outer side may
+				-- be driven above InputRPM for speed-preserving steering.
+				local OnRPM = ((Target > 0 and RPM < Target) or (Target < 0 and RPM > Target))
 
 				if Clutch > 0 and OnRPM then
-					local Multiplier = 1
-
-					if DoubleDiff and SteerRate ~= 0 then
-						local Rate = SteerRate * 2
-
-						-- this actually controls the RPM of the wheels, so the steering rate is correct
-						if Link.Side == 0 then
-							Multiplier = min(0, Rate) + 1
-						else
-							Multiplier = -max(0, Rate) + 1
-						end
-					end
-
-					if abs(InputRPM * Multiplier) > abs(RPM) then -- removing this check causes the wheels to constantly invert their rotation
-						Link.ReqTq = (InputRPM * Multiplier - RPM) * InputInertia * Clutch
+					if abs(Target) > abs(RPM) then -- removing this check causes the wheels to constantly invert their rotation
+						Link.ReqTq = (Target - RPM) * InputInertia * Clutch
 						TotalReqTq = TotalReqTq + abs(Link.ReqTq)
 					end
 				end
